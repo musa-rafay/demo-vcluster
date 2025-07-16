@@ -95,20 +95,23 @@ pipeline {
 
   post {
     always {
-      // Delete the on‑demand vcluster only if we actually created one
-      if (env.CHANGE_ID) {
-        withCredentials([ sshUserPrivateKey(credentialsId: env.SSH_CREDS,
-                                            keyFileVariable: 'KEY') ]) {
-          sh """
-            ssh -i \$KEY -o StrictHostKeyChecking=no \
-                ubuntu@${OCI_HOST} \
-                'vcluster delete vcluster-${CHANGE_ID} -n dev-${CHANGE_ID} --yes || true'
-          """
+      script {
+        if (env.CHANGE_ID) {
+          withCredentials([ sshUserPrivateKey(
+              credentialsId: env.SSH_CREDS,
+              keyFileVariable: 'KEY') ]) {
+  
+            sh """
+              ssh -i \$KEY -o StrictHostKeyChecking=no \
+                  ubuntu@${OCI_HOST} \
+                  'vcluster delete vcluster-${CHANGE_ID} -n dev-${CHANGE_ID} --yes || true'
+            """
+          }
+        } else {
+          echo 'No PR context – nothing to clean up.'
         }
-      } else {
-        echo 'No PR context – nothing to clean up.'
       }
-      cleanWs()            // keeps workspace fresh for branch indexing
+      cleanWs()            
     }
   }
 }

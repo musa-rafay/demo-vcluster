@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# Usage: deploy_changed.sh <kube‑context> "svc1,svc2"
-# Applies each service’s k8s manifests into the vcluster
+# Usage: deploy_changed.sh <kubeconfig> <comma‑list>
 set -euo pipefail
 
-CTX="${1:?context missing}"
-SVC_CSV="${2:-}"
-IFS=',' read -ra SVC_ARR <<<"${SVC_CSV}"
+export KUBECONFIG="$1"
+shift
+IFS=',' read -ra SERVICES <<< "$1"
 
-for svc in "${SVC_ARR[@]}"; do
-  MAN_DIR="${svc}/k8s"
-  if [[ -d "${MAN_DIR}" ]]; then
-    echo "▶︎ Deploying ${svc}"
-    kubectl --context "${CTX}" apply -f "${MAN_DIR}"
+for svc in "${SERVICES[@]}"; do
+  manifest="scripts/testbed/${svc}.yaml"
+  if [[ -f "${manifest}" ]]; then
+    echo "▶︎ Applying ${manifest}"
+    kubectl apply -f "${manifest}"
   else
-    echo "⚠︎  ${MAN_DIR} not found – skipping"
+    echo "⚠︎  ${manifest} not found – skipping"
   fi
 done

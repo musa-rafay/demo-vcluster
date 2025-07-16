@@ -23,18 +23,27 @@ pipeline {
       }
     }
 
-    stage('Detect changes') {
-      steps {
-        script {
-          sh 'git fetch origin main --quiet'
-          def diff = sh(returnStdout: true, script: 'git diff --name-only origin/main...HEAD | cut -d/ -f1 | sort -u').trim()
-          def map  = ['service-alpha': 'alpha', 'service-bravo': 'bravo']
-          def list = diff ? diff.split('\n').collect { map[it] }.findAll { it } : []
-          env.SVCS = list ? list.join(',') : 'alpha,bravo'
-          echo "Services to patch/test: ${env.SVCS}"
+   stage('Detect changes') {
+    steps {
+      script {
+        // Returns "feature-a,feature-b" (comma‑separated) or empty string
+        CHANGED_SERVICES = sh(
+          script: '''
+            git fetch origin main --quiet
+            git diff --name-only origin/main...HEAD \
+              | grep '^scripts/testbed/' \
+              | sed -E 's#scripts/testbed/(feature-[^.]+)\\.yaml#\\1#' \
+              | sort -u | paste -sd "," -
+          ''',
+          returnStdout: true
+        ).trim()
+        if (!CHANGED_SERVICES) {
+          error 'No changes detected under scripts/testbed — aborting build'
         }
+        echo "Services to patch/test: ${CHANGED_SERVICES}"
       }
     }
+  }
 
     stage('Provision vcluster') {
       when { changeRequest() }

@@ -1,14 +1,15 @@
 pipeline {
   agent any
+
   environment {
     VCLUSTER_CLI = '/usr/local/bin/vcluster'
   }
+
   stages {
     stage('Checkout') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
+
     stage('Create vCluster') {
       when { changeRequest() }
       steps {
@@ -17,7 +18,7 @@ pipeline {
             host: '141.148.143.154',
             user: 'ubuntu',
             identity: SSH_KEY,
-            knownHosts: allowAnyHosts
+            allowAnyHosts: true
           ], command: '''
 set -euo pipefail
 PR_ID=$CHANGE_ID
@@ -33,20 +34,23 @@ kubectl --context=$NS apply -f testbed/feature-b.yaml
       }
     }
   }
+
   post {
     cleanup {
-      withCredentials([sshUserPrivateKey(credentialsId: 'oci-ssh-creds', keyFileVariable: 'SSH_KEY')]) {
-        sshCommand remote: [
-          host: '141.148.143.154',
-          user: 'ubuntu',
-          identity: SSH_KEY,
-          knownHosts: allowAnyHosts
-        ], command: '''
+      script {
+        if (env.CHANGE_ID) {                // run only for PR builds
+          withCredentials([sshUserPrivateKey(credentialsId: 'oci-ssh-creds', keyFileVariable: 'SSH_KEY')]) {
+            sshCommand remote: [
+              host: '141.148.143.154',
+              user: 'ubuntu',
+              identity: SSH_KEY,
+              allowAnyHosts: true
+            ], command: '''
 set -euo pipefail
-if [ "$CHANGE_TARGET" = 'main' ]; then
-  ${VCLUSTER_CLI} delete pr-$CHANGE_ID -n vcluster-$CHANGE_ID --yes
-fi
+${VCLUSTER_CLI} delete pr-$CHANGE_ID -n vcluster-$CHANGE_ID --yes || true
 '''
+          }
+        }
       }
     }
   }

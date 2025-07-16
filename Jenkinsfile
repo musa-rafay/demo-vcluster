@@ -9,9 +9,6 @@ pipeline {
     KCFG_FILE = 'kubeconfig.yaml'
   }
   stages {
-    stage('Checkout') {
-      steps { checkout scm }
-    }
 
     stage('Skip if last run green') {
       when { expression { !params.RUN_AGAIN } }

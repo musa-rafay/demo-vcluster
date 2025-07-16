@@ -40,7 +40,7 @@ kubectl --context=$NS apply -f testbed/feature-b.yaml
       script {
         def remote = [
           name: 'oci-node',
-          host: 'YOUR.OCI.NODE.IP',
+          host: '141.148.143.154',
           user: 'ubuntu',
           identity: credentials('oci-ssh-creds'),
           allowAnyHosts: true

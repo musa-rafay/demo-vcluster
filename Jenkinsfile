@@ -1,93 +1,86 @@
 pipeline {
   agent any
-  parameters {
-    booleanParam(name: 'RUN_AGAIN', defaultValue: false,
-                 description: 'Re‑run tests without a new approval')
-  }
+
   environment {
-    SSH_CREDS = 'oci-ssh-creds'
-    OCI_HOST  = '141.148.143.154'
+    SSH_CREDS = 'oci-node'
+    OCI_HOST  = '144.24.36.64'
     KCFG_FILE = 'kubeconfig.yaml'
-    SVCS      = ''          // will be filled in Detect‑changes
+    SVCS      = ''
   }
 
   stages {
-
-    stage('Skip if last run green') {
-      when { expression { !params.RUN_AGAIN } }
-      steps {
-        script {
-          def prev = currentBuild.rawBuild.getPreviousBuild()
-          if (prev && prev.result == 'SUCCESS') {
-            currentBuild.result = 'SUCCESS'
-            echo 'Previous build green → skipping.'
-          }
-        }
-      }
-    }
-
     stage('Detect changes') {
       steps {
         script {
-          /** find changed manifests */
-          def changed = sh(
-            script: '''
-              git fetch origin main --quiet
-              git diff --name-only origin/main...HEAD |
-                grep '^scripts/testbed/' |
-                sed -E 's#scripts/testbed/(feature-[^.]+)\\.yaml#\\1#' |
-                sort -u | paste -sd "," -
-            ''',
+          def target = env.CHANGE_TARGET ?: 'main'
+          sh "git fetch --no-tags --quiet origin ${target}:${target}"
+
+          def raw = sh(
+            script: "git diff --name-only origin/${target}...HEAD || true",
             returnStdout: true
           ).trim()
 
-          if (!changed) {
-            echo '⚠️  No feature manifests changed; nothing to deploy.'
-            // uncomment the next line if you really want to abort
-            // error 'Aborting build.'
+          def features = []
+          raw.split('\\r?\\n').each { path ->
+            if (path.startsWith('scripts/testbed/') && path.endsWith('.yaml')) {
+              def base = path.tokenize('/')[-1]
+              features << base.replaceAll(/\\.yaml\$/, '')
+            }
           }
 
-          env.SVCS = changed                              // <- make it visible later
-          echo "Services to patch/test: ${env.SVCS}"
+          if (features) {
+            env.SVCS = features.join(',')
+            echo "Services to patch/test: ${env.SVCS}"
+          } else {
+            env.SVCS = ''
+            echo '⚠️  No feature manifests changed; continuing (nothing to deploy).'
+          }
         }
       }
     }
 
-    /** Create vcluster for PRs; reuse existing kubeconfig on main */
     stage('Provision vcluster') {
-      when { changeRequest() }                           // only for PR builds
+      when { changeRequest() }
       steps {
         withCredentials([ sshUserPrivateKey(credentialsId: env.SSH_CREDS,
-                                            keyFileVariable: 'KEY') ]) {
+                                            keyFileVariable: 'KEY',
+                                            usernameVariable: 'SSHUSER') ]) {
           sh """
-            scp -i \$KEY -o StrictHostKeyChecking=no \
-                scripts/create-vcluster-v2.sh ubuntu@${OCI_HOST}:/tmp/create.sh
-            ssh -i \$KEY -o StrictHostKeyChecking=no \
-                ubuntu@${OCI_HOST} 'bash /tmp/create.sh ${CHANGE_ID}'
-            scp -i \$KEY -o StrictHostKeyChecking=no \
-                ubuntu@${OCI_HOST}:~/vcluster/kubeconfig-${CHANGE_ID}.yaml \
-                ${env.KCFG_FILE}
+            set -e
+            echo "[INFO] Provisioning vcluster for PR ${CHANGE_ID} on ${OCI_HOST}"
+            scp -i \$KEY -o StrictHostKeyChecking=no scripts/create-vcluster-v2.sh \$SSHUSER@${OCI_HOST}:/tmp/create.sh
+            ssh -i \$KEY -o StrictHostKeyChecking=no \$SSHUSER@${OCI_HOST} 'bash /tmp/create.sh ${CHANGE_ID}'
+            scp -i \$KEY -o StrictHostKeyChecking=no \$SSHUSER@${OCI_HOST}:~/vcluster/kubeconfig-${CHANGE_ID}.yaml ${KCFG_FILE}
+            chmod 600 ${KCFG_FILE}
           """
         }
       }
     }
 
     stage('Deploy changed') {
-      when { expression { env.SVCS } }                   // skip if list empty
+      when { expression { return env.SVCS?.trim() } }
       steps {
         sh """
-          export KUBECONFIG=${env.KCFG_FILE}
-          ci/deploy_changed.sh kubernetes-admin@kubernetes "${env.SVCS}"
+          if [ ! -f "${KCFG_FILE}" ]; then
+            echo "[ERROR] kubeconfig not found; aborting deploy."
+            exit 1
+          fi
+          export KUBECONFIG=${KCFG_FILE}
+          ci/deploy_changed.sh kubernetes-admin@kubernetes "${SVCS}"
         """
       }
     }
 
     stage('Run tests') {
-      when { expression { env.SVCS } }
+      when { expression { return env.SVCS?.trim() } }
       steps {
         sh """
-          export KUBECONFIG=${env.KCFG_FILE}
-          ci/run_tests.sh "${env.SVCS}"
+          if [ ! -f "${KCFG_FILE}" ]; then
+            echo "[ERROR] kubeconfig not found; aborting tests."
+            exit 1
+          fi
+          export KUBECONFIG=${KCFG_FILE}
+          ci/run_tests.sh "${SVCS}"
         """
       }
     }
@@ -97,21 +90,11 @@ pipeline {
     always {
       script {
         if (env.CHANGE_ID) {
-          withCredentials([ sshUserPrivateKey(
-              credentialsId: env.SSH_CREDS,
-              keyFileVariable: 'KEY') ]) {
-  
-            sh """
-              ssh -i \$KEY -o StrictHostKeyChecking=no \
-                  ubuntu@${OCI_HOST} \
-                  'vcluster delete vcluster-${CHANGE_ID} -n dev-${CHANGE_ID} --yes || true'
-            """
-          }
+          echo "PR ${env.CHANGE_ID}: vcluster retained. Remember to clean up later."
         } else {
-          echo 'No PR context – nothing to clean up.'
+          echo "No PR context."
         }
       }
-      cleanWs()            
     }
   }
 }

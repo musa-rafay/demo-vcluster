@@ -7,44 +7,45 @@ pipeline {
     KCFG_FILE = 'kubeconfig.yaml'
     SVCS      = ''
   }
-
-  stages {
-    stage('Detect changes') {
-      steps {
-        script {
-          def target = env.CHANGE_TARGET ?: 'main'
-          // Fetch the target branch into a local ref named "base_target"
-          sh "git fetch --no-tags --quiet origin ${target}:base_target"
-        
-          // Use merge-base to find a common ancestor (robust for shallow refs)
-          def base = sh(
-            script: "git merge-base HEAD base_target || echo base_target",
-            returnStdout: true
-          ).trim()
-        
-          def raw = sh(
-            script: "git diff --name-only ${base}...HEAD || true",
-            returnStdout: true
-          ).trim()
-        
-          def features = []
-          raw.split('\\r?\\n').each { path ->
-            if (path.startsWith('scripts/testbed/') && path.endsWith('.yaml')) {
-              def baseName = path.tokenize('/')[-1]
-              features << baseName.replaceAll(/\\.yaml\$/, '')
-            }
+  
+   stage('Detect changes') {
+    steps {
+      script {
+        def target = env.CHANGE_TARGET ?: 'main'
+        sh "git fetch --no-tags --quiet origin ${target}:base_target"
+        def base = sh(script: "git merge-base HEAD base_target", returnStdout: true).trim()
+  
+        // Collect changed files
+        def raw = sh(
+          script: "git diff --name-only ${base}...HEAD || true",
+          returnStdout: true
+        ).trim()
+  
+        echo "Changed files vs ${target}:\n${raw ?: '(none)'}"
+  
+        // Extract features
+        def features = []
+        raw.readLines().each { path ->
+          // normalize backslashes just in case
+          path = path.trim()
+          if (path == '') return
+          // match testbed YAMLs anywhere under scripts/testbed (case sensitive)
+          if (path.startsWith('scripts/testbed/') && path ==~ /.*\\.ya?ml$/) {
+            def baseName = path.tokenize('/')[-1]
+            features << baseName.replaceAll(/\\.ya?ml$/, '')
           }
-        
-          if (features) {
-            env.SVCS = features.join(',')
-            echo "Services to patch/test: ${env.SVCS}"
-          } else {
-            env.SVCS = ''
-            echo '⚠️  No feature manifests changed; continuing (nothing to deploy).'
-          }
+        }
+  
+        if (features) {
+          env.SVCS = features.join(',')
+          echo "Services to patch/test: ${env.SVCS}"
+        } else {
+          env.SVCS = ''
+          echo 'No feature manifests changed; skipping deploy & tests.'
         }
       }
     }
+  }
 
     stage('Provision vcluster') {
       when { changeRequest() }

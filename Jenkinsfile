@@ -45,7 +45,7 @@ pipeline {
         }
       }
     }
-  }
+  
 
     stage('Provision vcluster') {
       when { changeRequest() }

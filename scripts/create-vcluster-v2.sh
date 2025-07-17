@@ -6,9 +6,11 @@
 # - Ensures namespace dev-<ID>
 # - Creates/upgrades vcluster-<ID> (k8s <ver>) without auto-connect
 # - Retrieves kubeconfig from Secret vc-vcluster-<ID>
+# - Tests connection by running `kubectl get ns` *through* vcluster connect
 # - Exits 0 without enforcing storage (PVC/SC)
 #
-# Usage: ./create-vcluster-basic.sh <ID> [SIZE_Gi=5] [K8S_VERSION=1.32] [PARENT_CONTEXT=kubernetes-admin@kubernetes]
+# Usage:
+#   ./create-vcluster-basic.sh <ID> [SIZE_Gi=5] [K8S_VERSION=1.32] [PARENT_CONTEXT=kubernetes-admin@kubernetes]
 
 set -euo pipefail
 
@@ -17,7 +19,8 @@ if [[ -z "$DEV" ]]; then
   echo "Usage: $0 <ID> [SIZE_Gi=5] [K8S_VERSION=1.32] [PARENT_CONTEXT=kubernetes-admin@kubernetes]" >&2
   exit 1
 fi
-# SIZE_Gi arg kept for interface compatibility; not enforced here
+
+# SIZE_Gi kept for interface compatibility; currently unused
 SIZE_Gi="${2:-5}"
 K8S_VERSION="${3:-1.32}"
 PARENT_CONTEXT="${4:-kubernetes-admin@kubernetes}"
@@ -62,14 +65,21 @@ cyan ">> Deploying $VC (virtual k8s $K8S_VERSION) in namespace $NS"
 TMPDIR="$(mktemp -d "/tmp/${VC}-XXXX")"
 pushd "$TMPDIR" >/dev/null
 set +e
-vcluster create "$VC" \
-  -n "$NS" \
-  --upgrade \
-  --connect=false
+
+# Build the base create cmd
+VCREATE=( vcluster create "$VC" -n "$NS" --upgrade --connect=false )
+# NOTE: only pass --kubernetes-version (or legacy --version) if you *need* it AND your CLI supports it.
+# To always request a version, uncomment ONE of the following after checking your CLI version:
+# VCREATE+=( --kubernetes-version "$K8S_VERSION" )   # newer CLI
+# VCREATE+=( --version "$K8S_VERSION" )              # legacy CLI
+
+"${VCREATE[@]}"
 VC_RET=$?
+
 set -e
 popd >/dev/null
 rm -rf "$TMPDIR"
+
 if [[ $VC_RET -ne 0 ]]; then
   red "vcluster create failed (exit $VC_RET)."; exit $VC_RET
 fi
@@ -91,20 +101,28 @@ fi
 chmod 600 "$VC_KCFG"
 green "Kubeconfig written to $VC_KCFG"
 
-# Light readiness probe (non-fatal)
-cyan ">> Pinging vCluster API (non-fatal wait) ..."
-for i in {1..30}; do
-  if kubectl --kubeconfig "$VC_KCFG" get ns >/dev/null 2>&1; then
-    green "vCluster API reachable."
-    break
-  fi
-  sleep 2
-done
+# ------------------------------------------------------------------
+# Test connection (simulate 'open another terminal & run kubectl get ns')
+# Preferred: use vcluster CLI passthrough to run kubectl inside the vCluster session.
+# Example from docs: vcluster connect my-vcluster -n my-ns -- kubectl get ns
+# ------------------------------------------------------------------
+cyan ">> Testing vCluster access (via vcluster connect passthrough): kubectl get ns"
+set +e
+vcluster connect "$VC" -n "$NS" -- kubectl get ns
+VC_TEST_RET=$?
+set -e
+
+if [[ $VC_TEST_RET -ne 0 ]]; then
+  yellow "vcluster passthrough test failed (exit $VC_TEST_RET); trying direct kubeconfig..."
+  # Direct attempt with the kubeconfig we just wrote (works if endpoint reachable or forwarded)
+  set +e
+  kubectl --kubeconfig "$VC_KCFG" get ns || yellow "  WARNING: direct kubeconfig get ns failed."
+  set -e
+fi
 
 green "-------------------------------------------------------------------"
 green "vCluster:   $VC"
 green "Namespace:  $NS"
-green "K8s Ver:    $K8S_VERSION"
 green "Kubeconfig: $VC_KCFG"
 green "-------------------------------------------------------------------"
 exit 0

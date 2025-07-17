@@ -89,7 +89,6 @@ pushd "$TMPDIR" >/dev/null
 set +e
 vcluster create "$VC" \
   -n "$NS" \
-  --k8s-version "$K8S_VERSION" \
   --upgrade \
   --connect=false
 VC_RET=$?

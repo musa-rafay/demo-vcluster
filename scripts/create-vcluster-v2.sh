@@ -135,7 +135,6 @@ vcluster create "$VC" \
   -n "$NS" \
   --upgrade \
   --connect=false \
-  --syncer-priority-class="" \
   --set sync.persistentvolumeclaims.enabled=true \
   --set sync.storageclasses.enabled=true \
   --set sync.persistentvolumes.enabled=true \

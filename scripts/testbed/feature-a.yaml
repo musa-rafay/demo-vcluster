@@ -17,7 +17,7 @@ spec:
       - name: http-echo
         image: hashicorp/http-echo:0.2.3
         args:
-        - "-text=Hello from feature‑A"
+        - "-text=Hello from feature‑A I CHANGED THIS HERE"
         ports:
         - containerPort: 5678
 ---

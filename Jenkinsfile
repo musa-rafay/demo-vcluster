@@ -13,21 +13,28 @@ pipeline {
       steps {
         script {
           def target = env.CHANGE_TARGET ?: 'main'
-          sh "git fetch --no-tags --quiet origin ${target}:${target}"
-
-          def raw = sh(
-            script: "git diff --name-only origin/${target}...HEAD || true",
+          // Fetch the target branch into a local ref named "base_target"
+          sh "git fetch --no-tags --quiet origin ${target}:base_target"
+        
+          // Use merge-base to find a common ancestor (robust for shallow refs)
+          def base = sh(
+            script: "git merge-base HEAD base_target || echo base_target",
             returnStdout: true
           ).trim()
-
+        
+          def raw = sh(
+            script: "git diff --name-only ${base}...HEAD || true",
+            returnStdout: true
+          ).trim()
+        
           def features = []
           raw.split('\\r?\\n').each { path ->
             if (path.startsWith('scripts/testbed/') && path.endsWith('.yaml')) {
-              def base = path.tokenize('/')[-1]
-              features << base.replaceAll(/\\.yaml\$/, '')
+              def baseName = path.tokenize('/')[-1]
+              features << baseName.replaceAll(/\\.yaml\$/, '')
             }
           }
-
+        
           if (features) {
             env.SVCS = features.join(',')
             echo "Services to patch/test: ${env.SVCS}"

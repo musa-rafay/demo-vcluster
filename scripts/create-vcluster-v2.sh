@@ -124,24 +124,22 @@ kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create ns "$NS"
 # ----- vCluster Create / Upgrade ----------------------------------------------
 cyan ">> Deploying $VC (virtual k8s $K8S_VERSION) in namespace $NS"
 
-# scratch dir to dodge chart name collisions
 TMPDIR="$(mktemp -d "/tmp/${VC}-XXXX")"
 pushd "$TMPDIR" >/dev/null
 
-# Create / upgrade (non-fatal if chart exists; vcluster handles upgrade)
-# enable PVC + StorageClass sync; also enable PV sync so bound volumes reflect parent state
 set +e
 vcluster create "$VC" \
   -n "$NS" \
   --upgrade \
   --connect=false \
-  --set sync.persistentvolumeclaims.enabled=true \
-  --set sync.storageclasses.enabled=true \
-  --set sync.persistentvolumes.enabled=true \
-  --set sync.nodes.enabled=false \
-  --set vcluster.imagePullPolicy=IfNotPresent
+  --set sync.fromHost.storageClasses.enabled=true \
+  --set sync.toHost.persistentVolumeClaims.enabled=true \
+  --set sync.toHost.persistentVolumes.enabled=false \
+  --set sync.toHost.nodes.enabled=false \
+  --set controlPlane.statefulSet.image.pullPolicy=IfNotPresent
 VC_RET=$?
 set -e
+
 popd >/dev/null
 rm -rf "$TMPDIR"
 

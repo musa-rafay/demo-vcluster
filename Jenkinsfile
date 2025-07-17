@@ -5,8 +5,8 @@ pipeline {
                  description: 'Re‑run tests without a new approval')
   }
   environment {
-    SSH_CREDS = 'oci-ssh-creds'
-    OCI_HOST  = '141.148.143.154'
+    SSH_CREDS = 'oci-node'
+    OCI_HOST  = '144.24.36.64'
     KCFG_FILE = 'kubeconfig.yaml'
     SVCS      = ''          // will be filled in Detect‑changes
   }
@@ -91,27 +91,19 @@ pipeline {
         """
       }
     }
-  }
+  } // stages
 
   post {
     always {
+      // intentionally NOT deleting vcluster; leaving up for manual inspection
       script {
         if (env.CHANGE_ID) {
-          withCredentials([ sshUserPrivateKey(
-              credentialsId: env.SSH_CREDS,
-              keyFileVariable: 'KEY') ]) {
-  
-            sh """
-              ssh -i \$KEY -o StrictHostKeyChecking=no \
-                  ubuntu@${OCI_HOST} \
-                  'vcluster delete vcluster-${CHANGE_ID} -n dev-${CHANGE_ID} --yes || true'
-            """
-          }
+          echo "PR ${env.CHANGE_ID}: vcluster retained. Remember to clean it up later."
         } else {
-          echo 'No PR context – nothing to clean up.'
+          echo 'No PR context – nothing to clean up.'
         }
       }
-      cleanWs()            
+      // cleanWs() removed so kubeconfig + logs remain in workspace archive
     }
   }
 }

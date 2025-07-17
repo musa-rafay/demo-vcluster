@@ -13,21 +13,28 @@ pipeline {
       steps {
         script {
           def target = env.CHANGE_TARGET ?: 'main'
-          sh "git fetch --no-tags --quiet origin ${target}:${target}"
-
-          def raw = sh(
-            script: "git diff --name-only origin/${target}...HEAD || true",
+          // Fetch the target branch into a local ref named "base_target"
+          sh "git fetch --no-tags --quiet origin ${target}:base_target"
+        
+          // Use merge-base to find a common ancestor (robust for shallow refs)
+          def base = sh(
+            script: "git merge-base HEAD base_target || echo base_target",
             returnStdout: true
           ).trim()
-
+        
+          def raw = sh(
+            script: "git diff --name-only ${base}...HEAD || true",
+            returnStdout: true
+          ).trim()
+        
           def features = []
           raw.split('\\r?\\n').each { path ->
             if (path.startsWith('scripts/testbed/') && path.endsWith('.yaml')) {
-              def base = path.tokenize('/')[-1]
-              features << base.replaceAll(/\\.yaml\$/, '')
+              def baseName = path.tokenize('/')[-1]
+              features << baseName.replaceAll(/\\.yaml\$/, '')
             }
           }
-
+        
           if (features) {
             env.SVCS = features.join(',')
             echo "Services to patch/test: ${env.SVCS}"
@@ -42,15 +49,13 @@ pipeline {
     stage('Provision vcluster') {
       when { changeRequest() }
       steps {
-        withCredentials([ sshUserPrivateKey(credentialsId: env.SSH_CREDS,
-                                            keyFileVariable: 'KEY',
-                                            usernameVariable: 'SSHUSER') ]) {
+        sshagent(credentials: [env.SSH_CREDS]) {
           sh """
             set -e
             echo "[INFO] Provisioning vcluster for PR ${CHANGE_ID} on ${OCI_HOST}"
-            scp -i \$KEY -o StrictHostKeyChecking=no scripts/create-vcluster-v2.sh \$SSHUSER@${OCI_HOST}:/tmp/create.sh
-            ssh -i \$KEY -o StrictHostKeyChecking=no \$SSHUSER@${OCI_HOST} 'bash /tmp/create.sh ${CHANGE_ID}'
-            scp -i \$KEY -o StrictHostKeyChecking=no \$SSHUSER@${OCI_HOST}:~/vcluster/kubeconfig-${CHANGE_ID}.yaml ${KCFG_FILE}
+            scp -o StrictHostKeyChecking=no scripts/create-vcluster-v2.sh ubuntu@${OCI_HOST}:/tmp/create.sh
+            ssh -o StrictHostKeyChecking=no ubuntu@${OCI_HOST} 'bash /tmp/create.sh ${CHANGE_ID} 5 1.32 kubernetes-admin@kubernetes'
+            scp -o StrictHostKeyChecking=no ubuntu@${OCI_HOST}:~/vc-kcfg/kubeconfig-${CHANGE_ID}.yaml ${KCFG_FILE}
             chmod 600 ${KCFG_FILE}
           """
         }
@@ -98,4 +103,3 @@ pipeline {
     }
   }
 }
-

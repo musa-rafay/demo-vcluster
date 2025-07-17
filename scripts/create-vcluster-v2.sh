@@ -100,13 +100,26 @@ if [[ $VC_RET -ne 0 ]]; then
 fi
 green "vCluster $VC created or upgraded."
 
-# generate kubeconfig
+# generate kubeconfig from Secret (non-interactive)
 VC_KCFG="${KCFG_DIR}/kubeconfig-${DEV}.yaml"
-cyan ">> Generating kubeconfig for $VC -> $VC_KCFG"
-if ! vcluster connect "$VC" -n "$NS" --update-current=false --print >"$VC_KCFG" 2>/dev/null; then
-  red "Failed to generate vCluster kubeconfig."; exit 4
+SECRET_NAME="vc-${VC}"
+cyan ">> Retrieving kubeconfig Secret '$SECRET_NAME' from namespace '$NS' -> $VC_KCFG"
+
+# Wait for the Secret to appear (timeout 60s)
+for i in {1..30}; do
+  if kubectl get secret "$SECRET_NAME" -n "$NS" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+
+if ! kubectl get secret "$SECRET_NAME" -n "$NS" \
+     --template='{{ index .data "config" }}' \
+     | base64 -d >"$VC_KCFG"; then
+  red "Failed to retrieve kubeconfig from Secret $SECRET_NAME."; exit 4
 fi
 chmod 600 "$VC_KCFG"
+green "Kubeconfig written to $VC_KCFG"
 
 # wait API
 cyan ">> Waiting for vCluster API ..."

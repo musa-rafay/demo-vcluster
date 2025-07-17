@@ -15,7 +15,7 @@ NS="dev-${DEV}"
 VC="vcluster-${DEV}"
 VC_K8S_VER="1.32"
 
-KCFG_DIR="$HOME/vcluster"
+KCFG_DIR="$HOME/vc-kcfg"
 KCFG_FILE="${KCFG_DIR}/kubeconfig-${DEV}.yaml"
 VCLUSTER_HOME="$HOME/.cache/vcluster"
 FLANNEL_MANIFEST_URL="https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml"

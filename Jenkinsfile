@@ -55,7 +55,7 @@ pipeline {
           sh """
             set -e
             echo "[INFO] Provisioning vcluster for PR ${CHANGE_ID} on ${OCI_HOST}"
-            scp -i $KEY -o StrictHostKeyChecking=no scripts/create-vcluster-v4.sh $SSHUSER@${OCI_HOST}:/tmp/create.sh
+            scp -i $KEY -o StrictHostKeyChecking=no scripts/create-vcluster-v2.sh $SSHUSER@${OCI_HOST}:/tmp/create.sh
             ssh -i $KEY -o StrictHostKeyChecking=no $SSHUSER@${OCI_HOST} 'bash /tmp/create.sh ${CHANGE_ID} 5 1.32 kubernetes-admin@kubernetes'
             scp -i $KEY -o StrictHostKeyChecking=no $SSHUSER@${OCI_HOST}:~/vc-kcfg/kubeconfig-${CHANGE_ID}.yaml ${KCFG_FILE}
             chmod 600 ${KCFG_FILE}
